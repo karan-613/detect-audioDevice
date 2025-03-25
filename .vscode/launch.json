@@ -1,0 +1,34 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug my_program",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/send",  // 可执行文件路径
+            "args": [],  // 可选：如果程序需要命令行参数，可以在此配置
+            "stopAtEntry": false,  // 是否在程序入口处停下来
+            "cwd": "${workspaceFolder}",  // 当前工作目录，通常是工作区目录
+            "environment": [],  // 环境变量，如果有需要可以配置
+            "externalConsole": false,  // 是否使用外部控制台
+            "MIMode": "gdb",  // 调试器模式：使用 GDB
+            "miDebuggerPath": "/usr/bin/gdb",  // GDB 路径
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ],
+            //"preLaunchTask": "build",  // 调试前执行的任务（通常在 tasks.json 中配置）
+            "sourceFileMap": {
+                "${workspaceFolder}": "${workspaceFolder}"  // 映射源文件路径
+            },
+            "logging": {
+                "moduleLoad": true,
+                "trace": true,
+                "engineLogging": true
+            }
+        }
+    ]
+}

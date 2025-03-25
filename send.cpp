@@ -159,7 +159,7 @@ void source_infoList_callback(pa_context *c, const pa_source_info *i, int eol, v
     std::string dev_description = dev_description_prev + "(" + dev_description_next + ")";
     const char *dev_bus = pa_proplist_gets(i->proplist, PA_PROP_DEVICE_BUS);
     const char *dev_name = i->name ? i->name : "N/A";
-    if (strcmp(dev_bus, Headphone_bus) == 0)
+    if (dev_bus==NULL || strcmp(dev_bus, Headphone_bus) == 0)
     {
         if (strcmp(dev_port, InputInternalMic) == 0)
         {
@@ -180,6 +180,10 @@ void source_infoList_callback(pa_context *c, const pa_source_info *i, int eol, v
     {
         std::cout << "cannot find Device Bus" << std::endl;
         return;
+    }
+    
+    if(dev_bus==NULL){
+        dev_bus=Headphone_bus;
     }
     s_tempPluggedDevices.push_back(deviceInfo(dev_name, dev_bus, dev_port, dev_description, "false", s_enHeadPhone));
 

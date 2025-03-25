@@ -5,6 +5,7 @@ project(SharedMemoryJSON)
 set(CMAKE_CXX_STANDARD 11)
 set(JSON_INCLUDE ${CMAKE_SOURCE_DIR}/thirdparty/json/single_include/nlohmann)
 set(PULSEAUDIO_INCLUDE /usr/include)
+set(CMAKE_BUILD_TYPE Debug)
 
 # 使用find_library自动查找库路径
 find_library(RT_LIB rt)
