@@ -67,6 +67,19 @@ struct deviceInfo
                                                          dev_category(_dev_category) {}
 };
 
+struct services2__userData{
+	pa_mainloop* mainloop;
+    pa_context* context;
+
+    std::string default_sink;
+    std::string default_source;
+    std::string monitor_of;
+    bool is_monitor_valid = false;
+    bool done = false;
+    bool internal_change = false; //内部默认sink和source变更
+
+};
+
 std::vector<deviceInfo> s_currentPluggedDevices;
 
 std::vector<deviceInfo> s_tempPluggedDevices;
@@ -77,6 +90,28 @@ void source_infoList_callback(pa_context *c, const pa_source_info *i, int eol, v
 static void writeSharedMemory(bool isFirstWrite);
 static int modifyHeadPhoneState();
 static void initPulseAudio();
+void services2__server_info_cb(pa_context* c, const pa_server_info* i, void* userdata);
+
+std::string services2__getCurrentTime() {
+    time_t now = time(0);
+    char timeStr[100];
+    strftime(timeStr, sizeof(timeStr), "%Y-%m-%d %H:%M:%S", localtime(&now));
+    return std::string(timeStr);
+}
+
+void services2__writeLog(const std::string& message, const std::string& filename = "/tmp/app.log") {
+    std::ofstream logFile;
+
+    // 以追加模式打开文件
+    logFile.open(filename, std::ios::app);
+
+    if (logFile.is_open()) {
+        logFile << "[" << services2__getCurrentTime() << "] " << message << std::endl;
+        logFile.close();
+    } else {
+        std::cerr << "无法打开日志文件: " << filename << std::endl;
+    }
+}
 
 
 // PulseAudio 状态回调函数
@@ -84,16 +119,16 @@ void context_state_callback(pa_context *c, void *userdata)
 {
     switch (pa_context_get_state(c))
     {
-    case PA_CONTEXT_READY:
+    case PA_CONTEXT_READY:{
         std::cout << "PulseAudio context is ready." << std::endl;
-        // 订阅设备事件
-        pa_context_subscribe(c, pa_subscription_mask(PA_SUBSCRIPTION_MASK_SOURCE), nullptr, nullptr);
-        pa_context_set_subscribe_callback(c, event_callback1, nullptr);
-        break;
+        services2__userData* data = static_cast<services2__userData*>(userdata);
+        pa_operation* op = pa_context_get_server_info(c, services2__server_info_cb, data);
+        if (op) pa_operation_unref(op);
+        break;}
     case PA_CONTEXT_FAILED:
         std::cerr << "PulseAudio context failed." << std::endl;
         sleep(3);
-        initPulseAudio();
+        initPulseAudio();//这里没有结束pulseaudio，直接建立新的连接，会有内存泄漏
         break;
     case PA_CONTEXT_TERMINATED:
         std::cout << "PulseAudio context terminated." << std::endl;
@@ -103,9 +138,115 @@ void context_state_callback(pa_context *c, void *userdata)
     }
 }
 
+void services2__module1_load_cb(pa_context* c, uint32_t idx, void* userdata){
+    auto* d = static_cast<services2__userData*>(userdata);
+    if (idx == PA_INVALID_INDEX) {
+        std::cerr << "module-lock-default-sink 加载失败" << std::endl;
+        services2__writeLog("module-lock-default-sink 加载失败");
+    }else{
+        std::string str = "module-lock-default-sink 加载成功 (index=" + std::to_string(idx)+")";
+        services2__writeLog(str);
+        std::cout << "module-lock-default-sink 加载成功 (index="<< idx <<")" << std::endl;
+    }
+    d->done = true;
+}
+
+void services2__module_load_cb(pa_context* c, uint32_t idx, void* userdata) {
+    auto* d = static_cast<services2__userData*>(userdata);
+    if (idx == PA_INVALID_INDEX) {
+        std::cerr << "module-elevoc-engine 加载失败" << std::endl;
+        services2__writeLog("module-elevoc-engine 加载失败");
+    } else {
+        std::cout << "module-elevoc-engine 加载成功 (index="<< idx <<")，设置默认 Sink/Source…" << std::endl;
+        std::string str = "module-elevoc-engine 加载成功 (index=" +std::to_string(idx)+")，设置默认 Sink/Source…";
+        services2__writeLog(str);
+        pa_context_set_default_sink(c, "echoCancelsink", nullptr, nullptr);
+        pa_context_set_default_source(c, "echoCancelSource", nullptr, nullptr);
+        d->internal_change = true;
+        const char* args = "sink_name=echoCancelsink";
+        pa_operation* op = pa_context_load_module(c, "module-lock-default-sink", args, services2__module1_load_cb, userdata);
+        if (op) pa_operation_unref(op);
+    }
+}
+
+void services2__sink_info_cb(pa_context* c, const pa_sink_info* i, int eol, void* userdata){
+    services2__userData* data = static_cast<services2__userData*>(userdata);
+    if (eol < 0) {
+        std::cerr << "Failed to get default sink info" << std::endl;
+        return;
+    }
+
+    if(eol>0){
+        return;
+    }
+
+    if (eol == 0 && i) {
+        std::cout<<"default_sink->monitor_of_source "<<i->monitor_source_name<<std::endl;
+        std::string str = "default_sink->monitor_of_source " + std::string(i->monitor_source_name);
+        services2__writeLog(str);
+        data->monitor_of = i->monitor_source_name;
+        data->is_monitor_valid = data->default_source == data->monitor_of ? false : true;
+    }
+    pa_subscription_mask mask_t = PA_SUBSCRIPTION_MASK_SOURCE;
+    if(data->is_monitor_valid){
+        const char* args =
+        "use_master_format=1 "
+        "aec_method=elevoc "
+        "aec_args=\"analog_gain_control=0 digital_gain_control=1\" "
+        "source_name=echoCancelSource "
+        "sink_name=echoCancelsink "
+        "rate=48000 "
+        "format=float32le";
+        pa_operation* op = pa_context_load_module(
+            c,
+            "module-elevoc-engine",
+            args,
+            services2__module_load_cb,
+            userdata
+        );
+        if (op) pa_operation_unref(op);
+    }else{
+        mask_t = pa_subscription_mask(mask_t | PA_SUBSCRIPTION_MASK_SERVER);
+    }
+    // 订阅设备事件
+    pa_context_subscribe(c, mask_t, nullptr, nullptr);
+    pa_context_set_subscribe_callback(c, event_callback1, data);
+}
+
+void services2__server_info_cb(pa_context* c, const pa_server_info* i, void* userdata) {
+    services2__userData* data = static_cast<services2__userData*>(userdata);
+
+    if (!i) {
+        std::cerr << "Failed to get server info" << std::endl;
+        return;
+    }
+
+    data->default_sink = i->default_sink_name ? i->default_sink_name : "";
+    data->default_source = i->default_source_name ? i->default_source_name : "";
+
+    // std::cout << "Default Sink: " << data->default_sink << std::endl;
+    std::cout << "Default Source: " << data->default_source << std::endl;
+
+    services2__writeLog("Default Sink: "+std::string(data->default_sink));
+    services2__writeLog("Default Source: " + std::string(data->default_source));
+
+     // 获取默认 Sink 的详细信息
+    pa_operation* op = pa_context_get_sink_info_by_name(c, data->default_sink.c_str(),
+        services2__sink_info_cb,
+        data
+    );
+
+    if (op) {
+        pa_operation_unref(op);
+    } else {
+        std::cerr << "Failed to initiate sink info query" << std::endl;
+    }
+
+}
+
 void event_callback1(pa_context *c, pa_subscription_event_type_t type, uint32_t idx, void *userdata)
 {
-
+    services2__userData* data = static_cast<services2__userData*>(userdata);
     pa_subscription_event_type_t facility = pa_subscription_event_type_t(type & PA_SUBSCRIPTION_EVENT_FACILITY_MASK);
     pa_subscription_event_type_t event_type = pa_subscription_event_type_t(type & PA_SUBSCRIPTION_EVENT_TYPE_MASK);
 
@@ -119,6 +260,15 @@ void event_callback1(pa_context *c, pa_subscription_event_type_t type, uint32_t 
         std::cout << "=====PA_SUBSCRIPTION_EVENT_SOURCE=====" << std::endl;
         s_tempPluggedDevices.clear();
         op = pa_context_get_source_info_list(c, source_infoList_callback, nullptr);
+    }
+    if(facility == PA_SUBSCRIPTION_EVENT_SERVER && event_type == PA_SUBSCRIPTION_EVENT_CHANGE ){
+        if(data->internal_change){
+            return;
+        }
+        std::cout << "检测到服务器配置变更，重新验证..." << std::endl;
+        services2__writeLog("检测到服务器配置变更，重新验证...");
+        pa_operation* op = pa_context_get_server_info(c, services2__server_info_cb, data);
+        if (op) pa_operation_unref(op);
     }
     if (op)
     {
@@ -181,7 +331,7 @@ void source_infoList_callback(pa_context *c, const pa_source_info *i, int eol, v
         std::cout << "cannot find Device Bus" << std::endl;
         return;
     }
-    
+
     if(dev_bus==NULL){
         dev_bus=Headphone_bus;
     }
@@ -293,8 +443,14 @@ static void initPulseAudio(){
     pa_mainloop_api *mainloop_api = pa_mainloop_get_api(m);
     pa_context *c = pa_context_new(mainloop_api, "Audio Device Monitor");
 
+    //创建services2 结构体
+    services2__userData data{};
+    data.mainloop = m;
+    data.context = c;
+
+
     // 设置上下文状态回调
-    pa_context_set_state_callback(c, context_state_callback, nullptr);
+    pa_context_set_state_callback(c, context_state_callback, &data);
 
     // 连接到 PulseAudio
     if (pa_context_connect(c, nullptr, PA_CONTEXT_NOFLAGS, nullptr) < 0)
@@ -310,6 +466,7 @@ static void initPulseAudio(){
     pa_context_disconnect(c);
     pa_context_unref(c);
     pa_mainloop_free(m);
+    std::cerr<<"the process overed."<<std::endl;
 }
 
 static void initSharedMemory(){

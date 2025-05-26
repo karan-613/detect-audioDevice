@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.10)
 project(SharedMemoryJSON)
 
 set(CMAKE_CXX_STANDARD 11)
-set(JSON_INCLUDE ${CMAKE_SOURCE_DIR}/thirdparty/json/single_include/nlohmann)
+set(JSON_INCLUDE ${CMAKE_SOURCE_DIR}/thirdparty/json)
 set(PULSEAUDIO_INCLUDE /usr/include)
 set(CMAKE_BUILD_TYPE Debug)
 
