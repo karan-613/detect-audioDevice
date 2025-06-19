@@ -161,7 +161,7 @@ void services2__module_load_cb(pa_context* c, uint32_t idx, void* userdata) {
         std::string str = "module-elevoc-engine 加载成功 (index=" +std::to_string(idx)+")，设置默认 Sink/Source…";
         services2__writeLog(str);
         pa_context_set_default_sink(c, "echoCancelsink", nullptr, nullptr);
-        pa_context_set_default_source(c, "echoCancelSource", nullptr, nullptr);
+        pa_context_set_default_source(c, "noiseReduceSource", nullptr, nullptr);
         d->internal_change = true;
         const char* args = "sink_name=echoCancelsink";
         pa_operation* op = pa_context_load_module(c, "module-lock-default-sink", args, services2__module1_load_cb, userdata);
@@ -193,7 +193,7 @@ void services2__sink_info_cb(pa_context* c, const pa_sink_info* i, int eol, void
         "use_master_format=1 "
         "aec_method=elevoc "
         "aec_args=\"analog_gain_control=0 digital_gain_control=1\" "
-        "source_name=echoCancelSource "
+        "source_name=noiseReduceSource "
         "sink_name=echoCancelsink "
         "rate=48000 "
         "format=float32le";
