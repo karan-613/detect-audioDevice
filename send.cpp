@@ -65,6 +65,9 @@ struct deviceInfo
                                                          dev_description(_dev_description),
                                                          isDefaultDevice(_isDefaultDevice),
                                                          dev_category(_dev_category) {}
+    bool operator==(const deviceInfo& rhs) const {
+        return dev_port == rhs.dev_port && dev_name == rhs.dev_name;
+    }
 };
 
 struct services2__userData{
@@ -283,6 +286,10 @@ void source_infoList_callback(pa_context *c, const pa_source_info *i, int eol, v
         bremoveOnce = true;
         if (s_tempPluggedDevices.empty())
         {
+            return;
+        }
+        if(s_currentPluggedDevices == s_tempPluggedDevices){
+            std::cout<<"The state is not change"<<std::endl;
             return;
         }
         s_currentPluggedDevices = s_tempPluggedDevices;
