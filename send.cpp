@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <fstream>
 #include <csignal>
+#include <pwd.h>
 
 #include "json.hpp"
 
@@ -38,6 +39,8 @@ static const char *InputInternalMic = "analog-input-internal-mic";
 static const char *InputMic = "analog-input-mic";
 static std::string defaultSourceName = "内部话筒(HD-Audio Generic)";
 static int defaultDevCategory = 2;//内置麦克风
+
+static std::string logPath;
 
 static enum EnumHeadphone {
     USB,
@@ -95,6 +98,46 @@ static int modifyHeadPhoneState();
 static void initPulseAudio();
 void services2__server_info_cb(pa_context* c, const pa_server_info* i, void* userdata);
 
+static const char* generateSharedMemoryName(std::string name){
+    uid_t uid = getuid();
+    struct passwd pwd, *result = NULL;
+    char buf[1024];
+
+    // 使用线程安全的 getpwuid_r
+    if (getpwuid_r(uid, &pwd, buf, sizeof(buf), &result) != 0 || !result) {
+        return "unknown";
+    }
+    const char* b = result->pw_name;
+    const char* a = name.c_str();
+    int len = snprintf(NULL, 0, "%s%s", a, b);
+
+    char *buffer = (char*)malloc(len + 1);
+    if (!buffer) return "unknown";
+
+    snprintf(buffer, len + 1, "%s%s", a, b);
+    return buffer;
+}
+
+static const char* services2__get_current_username_log(const char* content) {
+    uid_t uid = getuid();
+    struct passwd pwd, *result = NULL;
+    char buf[1024];
+
+    // 使用线程安全的 getpwuid_r
+    if (getpwuid_r(uid, &pwd, buf, sizeof(buf), &result) != 0 || !result) {
+        return "unknown";
+    }
+
+    const char *a = "/tmp/", *b = content, *c = result->pw_name, *d = ".log";
+    int len = snprintf(NULL, 0, "%s%s%s%s", a, b, c, d);
+
+    char *buffer = (char*)malloc(len + 1);
+    if (!buffer) return "unknown";
+
+    snprintf(buffer, len + 1, "%s%s%s%s", a, b, c, d);
+    return buffer;
+}
+
 std::string services2__getCurrentTime() {
     time_t now = time(0);
     char timeStr[100];
@@ -102,17 +145,16 @@ std::string services2__getCurrentTime() {
     return std::string(timeStr);
 }
 
-void services2__writeLog(const std::string& message, const std::string& filename = "/tmp/app.log") {
+void services2__writeLog(const std::string& message) {
     std::ofstream logFile;
-
     // 以追加模式打开文件
-    logFile.open(filename, std::ios::app);
+    logFile.open(logPath, std::ios::app);
 
     if (logFile.is_open()) {
         logFile << "[" << services2__getCurrentTime() << "] " << message << std::endl;
         logFile.close();
     } else {
-        std::cerr << "无法打开日志文件: " << filename << std::endl;
+        std::cerr << "无法打开日志文件: " << logPath << std::endl;
     }
 }
 
@@ -536,6 +578,10 @@ static void firstWriteSharedMemory(){
 
 int main()
 {
+    logPath = services2__get_current_username_log("app_");
+    SHM_NAME = generateSharedMemoryName("/shared_mem_pulseaudio_");
+    SEM_WRITE_NAME = generateSharedMemoryName("/my_sem_write_");
+
     if(signal(SIGTERM,signal_handler)==SIG_ERR){
         std::cerr<<"unable to catch sigterm"<<std::endl;
     }
